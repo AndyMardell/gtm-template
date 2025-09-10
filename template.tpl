@@ -141,9 +141,10 @@ const makeNumber = require('makeNumber');
 const setDefaultConsentState = require('setDefaultConsentState');
 const updateConsentState = require('updateConsentState');
 const injectScript = require('injectScript');
-const queryPermission = require('queryPermission');
 const copyFromWindow = require('copyFromWindow');
 const createQueue = require('createQueue');
+const getCookieValues = require('getCookieValues');
+const decodeUriComponent = require('decodeUriComponent');
 
 let dataLayerPush  = createQueue('dataLayer');
 
@@ -172,32 +173,63 @@ setDefaultConsentState({
   'security_storage': 'granted',
   'wait_for_update': makeNumber(data.wait_for_update)
 });
+
+const ccRawVals = () => {
+  const ccCookieVals = getCookieValues('CookieControl');
+  if (!ccCookieVals || !ccCookieVals.length) return '';
+  return ('' + decodeUriComponent(ccCookieVals[0])).toLowerCase();
+}
+
+const analyticsGranted = () => {
+  const ccRawData = ccRaw();
+  return ccRawData.indexOf('"optionalcookies"') !== -1 && ccRawData.indexOf('"analytics":"accepted"') !== -1;
+}
+
+const marketingGranted = () => {
+  const ccRawData = ccRaw();
+  return ccRawData.indexOf('"optionalcookies"') !== -1 && ccRawData.indexOf('"marketing":"accepted"') !== -1;
+}
+
+if (ccRawVals) {
+  updateConsentState({
+    analytics_storage: analyticsGranted() ? 'granted' : 'denied',
+    ad_storage: marketingGranted() ? 'granted' : 'denied',
+    ad_user_data: marketingGranted() ? 'granted' : 'denied',
+    ad_personalization: marketingGranted() ? 'granted' : 'denied',
+    personalization_storage: marketingGranted() ? 'granted' : 'denied',
+  });
+}
+
 var config = {
     apiKey: data.apiKey,
     product: data.product,
     optionalCookies: [
         {
-            name : 'Analytics',
+            name : 'analytics',
             label: 'Analytical Cookies',
             description: 'Analytical cookies help us to improve our website by collecting and reporting information on its usage.',
             cookies: ['_ga', '_ga*', '_gid', '_gat', '__utma', '__utmt', '__utmb', '__utmc', '__utmz', '__utmv'],
             onAccept : function(){
                 updateConsentState({
-                'analytics_storage': 'granted'
+                  'analytics_storage': 'granted'
                 });
-                dataLayerPush({
-                  'event': 'analytics_accept',
-                  'category': 'analytics'
-                });
+                if (!analyticsGranted()) {
+                  dataLayerPush({
+                    'event': 'analytics_accept',
+                    'category': 'analytics'
+                  });
+                }
             },
             onRevoke: function(){
                 updateConsentState({
-                'analytics_storage': 'denied'
+                  'analytics_storage': 'denied'
                 });
-                dataLayerPush({
-                  'event': 'analytics_revoke',
-                  'category': 'analytics'
-                });
+                if (analyticsGranted()) {
+                  dataLayerPush({
+                    'event': 'analytics_revoke',
+                    'category': 'analytics'
+                  });
+                }
             },
             vendors: [
               {
@@ -212,28 +244,32 @@ var config = {
             label: 'Marketing Cookies',
             description: 'We use marketing cookies to help us improve the relevancy of suggested content and advertising campaigns.',
             onAccept : function(){
-                updateConsentState({
+              updateConsentState({
                 'ad_storage': 'granted',
                 'ad_user_data': 'granted',
                 'ad_personalization': 'granted',
                 'personalization_storage': 'granted'
-                });
+              });
+              if (!marketingGranted()) {
                 dataLayerPush({
                   'event': 'marketing_accept',
                   'category': 'marketing'
                 });
+              }
             },
             onRevoke: function(){
-                updateConsentState({
+              updateConsentState({
                 'ad_storage': 'denied',
                 'ad_user_data': 'denied',
                 'ad_personalization': 'denied',
                 'personalization_storage': 'denied'
-                });
+              });
+              if (marketingGranted()) {
                 dataLayerPush({
                   'event': 'marketing_revoke',
                   'category': 'marketing'
                 });
+              }
             },
             vendors: [
               {
